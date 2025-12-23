@@ -12,4 +12,4 @@ RUN bun install --production
 COPY . .
 
 # Set entrypoint - expects API_KEY and CONVEX_URL as arguments
-ENTRYPOINT ["bun", "run", "index.ts"]
+ENTRYPOINT ["bun", "run", "src/index.ts"]

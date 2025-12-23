@@ -1,0 +1,20 @@
+{
+  "name": "remote-cmd-relay-test-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test project for remote-cmd-relay e2e tests",
+  "type": "module",
+  "scripts": {
+    "dev": "npx convex dev --configure=existing --team ozan-turksever --project remote-cmd-relay",
+    "deploy": "npx convex deploy"
+  },
+  "dependencies": {
+    "@convex-dev/better-auth": "^0.10.6",
+    "better-auth": "^1.2.0",
+    "convex": "^1.29.3",
+    "convex-helpers": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

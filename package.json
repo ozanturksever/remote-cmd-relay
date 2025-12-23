@@ -15,7 +15,16 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces --if-present",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "clean": "rm -rf packages/*/dist packages/*/node_modules"
+  },
+  "devDependencies": {
+    "convex": "^1.29.3",
+    "execa": "^9.5.2",
+    "jose": "^6.0.10",
+    "tree-kill": "^1.2.2",
+    "unzipper": "^0.12.3",
+    "vitest": "^3.0.5"
   },
   "engines": {
     "node": ">=18"
