@@ -243,11 +243,16 @@ publish_npm() {
     # Use provided OTP or prompt for it
     if [ -z "$otp" ]; then
         echo ""
-        read -p "Enter npm OTP code: " otp
+        # Use /dev/tty to read from terminal even when stdin is piped
+        if [ -t 0 ]; then
+            read -p "Enter npm OTP code: " otp
+        else
+            read -p "Enter npm OTP code: " otp < /dev/tty
+        fi
     fi
     
     if [ -z "$otp" ]; then
-        log_error "OTP code is required for npm publish"
+        log_error "OTP code is required for npm publish. Use --otp <code> flag."
         exit 1
     fi
     
@@ -430,7 +435,12 @@ main() {
     if [ "$auto_yes" = true ]; then
         log_info "Auto-confirmed with --yes flag"
     else
-        read -p "Continue? (y/N) " -n 1 -r
+        # Use /dev/tty to read from terminal even when stdin is piped
+        if [ -t 0 ]; then
+            read -p "Continue? (y/N) " -n 1 -r
+        else
+            read -p "Continue? (y/N) " -n 1 -r < /dev/tty
+        fi
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             log_info "Aborted."
