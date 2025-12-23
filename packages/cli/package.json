@@ -11,7 +11,7 @@
   },
   "type": "module",
   "bin": {
-    "remote-cmd-relay": "./dist/index.js"
+    "remote-cmd-relay": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
