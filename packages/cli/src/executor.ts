@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { Client } from "ssh2";
 import { logger } from "./logger.js";
 
@@ -25,61 +26,79 @@ export interface SSHExecuteOptions {
 }
 
 /**
- * Execute a command locally using Bun.spawn
+ * Execute a command locally using child_process.spawn
  */
 export async function executeLocal(options: LocalExecuteOptions): Promise<ExecutionResult> {
   const startTime = Date.now();
   
   logger.debug(`Executing local command: ${options.command}`);
   
-  try {
-    const proc = Bun.spawn(["sh", "-c", options.command], {
-      stdout: "pipe",
-      stderr: "pipe",
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let resolved = false;
+
+    const proc = spawn("sh", ["-c", options.command], {
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    // Set up timeout
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
         proc.kill();
-        reject(new Error("Command timed out"));
-      }, options.timeoutMs);
+        resolve({
+          success: false,
+          output: stdout,
+          stderr: stderr,
+          exitCode: -1,
+          error: "Command timed out",
+          durationMs: Date.now() - startTime,
+        });
+      }
+    }, options.timeoutMs);
+
+    proc.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
     });
 
-    // Wait for process or timeout
-    const exitCode = await Promise.race([
-      proc.exited,
-      timeoutPromise,
-    ]);
+    proc.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const durationMs = Date.now() - startTime;
+    proc.on("close", (code) => {
+      if (!resolved) {
+        clearTimeout(timeout);
+        resolved = true;
+        const exitCode = code ?? 0;
+        const durationMs = Date.now() - startTime;
+        logger.debug(`Command completed with exit code ${exitCode}`, { durationMs });
+        resolve({
+          success: exitCode === 0,
+          output: stdout,
+          stderr: stderr,
+          exitCode,
+          durationMs,
+        });
+      }
+    });
 
-    logger.debug(`Command completed with exit code ${exitCode}`, { durationMs });
-
-    return {
-      success: exitCode === 0,
-      output: stdout,
-      stderr: stderr,
-      exitCode: exitCode,
-      durationMs,
-    };
-  } catch (err) {
-    const durationMs = Date.now() - startTime;
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    
-    logger.error(`Local command failed: ${errorMessage}`);
-    
-    return {
-      success: false,
-      output: "",
-      stderr: "",
-      exitCode: -1,
-      error: errorMessage,
-      durationMs,
-    };
-  }
+    proc.on("error", (err) => {
+      if (!resolved) {
+        clearTimeout(timeout);
+        resolved = true;
+        const errorMessage = err.message;
+        logger.error(`Local command failed: ${errorMessage}`);
+        resolve({
+          success: false,
+          output: stdout,
+          stderr: stderr,
+          exitCode: -1,
+          error: errorMessage,
+          durationMs: Date.now() - startTime,
+        });
+      }
+    });
+  });
 }
 
 /**

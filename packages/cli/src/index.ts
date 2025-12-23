@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { Relay } from "./relay.js";
 import { logger, setLogLevel } from "./logger.js";

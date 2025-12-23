@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { logger } from "./logger.js";
 import { executeLocal, executeSSH, type ExecutionResult } from "./executor.js";
 import { credentialManager, type CredentialMetadata } from "./credentials.js";
@@ -286,7 +287,7 @@ export class Relay {
           // Fall back to reading from ~/.ssh/id_rsa
           try {
             const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-            privateKey = await Bun.file(`${homeDir}/.ssh/id_rsa`).text();
+            privateKey = await readFile(`${homeDir}/.ssh/id_rsa`, "utf-8");
             logger.debug("Using default SSH key from ~/.ssh/id_rsa");
           } catch {
             result = {
