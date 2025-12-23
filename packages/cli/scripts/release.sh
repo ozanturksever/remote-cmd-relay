@@ -236,9 +236,22 @@ git_push() {
 
 # Publish to npm
 publish_npm() {
+    local otp=$1
+    
     log_step "Publishing to npm"
     
-    npm publish --access public
+    # Use provided OTP or prompt for it
+    if [ -z "$otp" ]; then
+        echo ""
+        read -p "Enter npm OTP code: " otp
+    fi
+    
+    if [ -z "$otp" ]; then
+        log_error "OTP code is required for npm publish"
+        exit 1
+    fi
+    
+    npm publish --access public --otp="$otp"
     log_success "Published to npm"
 }
 
@@ -296,12 +309,15 @@ usage() {
     echo "  x.y.z       Set specific version"
     echo ""
     echo "Options:"
-    echo "  --dry-run   Show what would be done without making changes"
-    echo "  --skip-tests Skip running tests"
-    echo "  --help      Show this help message"
+    echo "  --otp <code>  npm OTP code for 2FA (required for publish)"
+    echo "  --yes, -y     Skip confirmation prompt (non-interactive mode)"
+    echo "  --dry-run     Show what would be done without making changes"
+    echo "  --skip-tests  Skip running tests"
+    echo "  --help        Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 patch"
+    echo "  $0 patch                      # Interactive mode"
+    echo "  $0 patch --otp 123456 --yes   # Non-interactive mode"
     echo "  $0 minor"
     echo "  $0 1.2.3"
     echo "  $0 patch --dry-run"
@@ -312,6 +328,8 @@ main() {
     local version_arg=""
     local dry_run=false
     local skip_tests=false
+    local otp_code=""
+    local auto_yes=false
     
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -322,6 +340,14 @@ main() {
                 ;;
             --skip-tests)
                 skip_tests=true
+                shift
+                ;;
+            --otp)
+                otp_code="$2"
+                shift 2
+                ;;
+            --yes|-y)
+                auto_yes=true
                 shift
                 ;;
             --help|-h)
@@ -400,11 +426,16 @@ main() {
     echo "  • Publish to npm as ${CYAN}@ozanturksever/remote-cmd-relay@$new_version${NC}"
     echo "  • Create GitHub release with binaries"
     echo ""
-    read -p "Continue? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Aborted."
-        exit 0
+    
+    if [ "$auto_yes" = true ]; then
+        log_info "Auto-confirmed with --yes flag"
+    else
+        read -p "Continue? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Aborted."
+            exit 0
+        fi
     fi
     
     echo ""
@@ -430,7 +461,7 @@ main() {
     git_push "$new_version"
     
     # Publish
-    publish_npm
+    publish_npm "$otp_code"
     
     # GitHub release
     create_github_release "$new_version"

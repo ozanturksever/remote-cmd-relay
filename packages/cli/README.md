@@ -16,19 +16,47 @@ The Remote Command Relay acts as a bridge between your Convex backend and machin
 
 ## Installation
 
-### Pre-built Binary
+### Via npx (Recommended)
 
-Download the pre-built binary for your platform from the releases page.
+Run directly without installing:
+
+```bash
+npx @fatagnus/remote-cmd-relay --help
+```
+
+### Via npm (Global Install)
+
+```bash
+npm install -g @fatagnus/remote-cmd-relay
+remote-cmd-relay --help
+```
+
+### Pre-built Binaries
+
+Download the pre-built binary for your platform from the [GitHub Releases](https://github.com/ozanturksever/remote-cmd-relay/releases) page.
+
+| Platform | Binary Name |
+|----------|-------------|
+| Linux x86_64 | `remote-cmd-relay_linux_amd64` |
+| Linux ARM64 | `remote-cmd-relay_linux_arm64` |
+| macOS Intel | `remote-cmd-relay_darwin_amd64` |
+| macOS Apple Silicon | `remote-cmd-relay_darwin_arm64` |
+
+```bash
+# Example: Download and run on Linux x86_64
+curl -L -o remote-cmd-relay https://github.com/ozanturksever/remote-cmd-relay/releases/latest/download/remote-cmd-relay_linux_amd64
+chmod +x remote-cmd-relay
+./remote-cmd-relay --help
+```
 
 ### Build from Source
 
 ```bash
-cd remote-cmd-relay
+cd packages/cli
 bun install
-bun run build
+bun run build:npm      # Build npm package
+bun run build:binaries # Build standalone binaries for all platforms
 ```
-
-This creates a standalone binary at `dist/remote-cmd-relay`.
 
 ## Usage
 

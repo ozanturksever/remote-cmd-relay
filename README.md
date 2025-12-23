@@ -8,9 +8,19 @@ A monorepo containing tools for executing commands on remote machines through a 
 
 A standalone CLI tool that connects to Convex and executes commands on machines in restricted network segments. Features secure credential management, capability reporting, and real-time status updates.
 
+**Quick Start:**
+
 ```bash
+# Run directly with npx (no install needed)
+npx @fatagnus/remote-cmd-relay --help
+
+# Or install globally
 npm install -g @fatagnus/remote-cmd-relay
 ```
+
+**Download Binary:**
+
+Pre-built binaries are available for Linux and macOS (x64 and ARM64) on the [GitHub Releases](https://github.com/ozanturksever/remote-cmd-relay/releases) page.
 
 ### [@fatagnus/remote-cmd-relay-convex](./packages/convex)
 
@@ -69,7 +79,16 @@ npm run build
 
 # Run tests
 npm run test
+
+# Run e2e tests
+npm run test:e2e
 ```
+
+## Links
+
+- [GitHub Repository](https://github.com/ozanturksever/remote-cmd-relay)
+- [npm: @fatagnus/remote-cmd-relay](https://www.npmjs.com/package/@fatagnus/remote-cmd-relay)
+- [Releases](https://github.com/ozanturksever/remote-cmd-relay/releases)
 
 ## License
 
