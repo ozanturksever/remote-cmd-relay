@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { logger } from "./logger.js";
 import { executeLocal, executeSSH, type ExecutionResult } from "./executor.js";
-import { credentialManager, type CredentialMetadata } from "./credentials.js";
+import { CredentialManager, type CredentialMetadata } from "./credentials.js";
 import { detectCapabilities, getMachineId, type Capability } from "./capabilities.js";
 import { collectMetrics, type PerformanceMetrics } from "./metrics.js";
 import { SyncManager } from "./sync.js";
@@ -13,6 +13,7 @@ export interface RelayConfig {
   heartbeatIntervalMs: number;
   statusReportIntervalMs: number;
   sharedSecretKey?: string; // For decrypting shared credentials
+  storeDir?: string; // Custom directory for credential store
 }
 
 export interface RelayAssignment {
@@ -42,12 +43,14 @@ export class Relay {
   private statusReportInterval: Timer | null = null;
   private capabilities: Capability[] = [];
   private syncManager: SyncManager | null = null;
+  private credentialManager: CredentialManager;
 
   constructor(config: RelayConfig) {
     this.config = {
       ...config,
       statusReportIntervalMs: config.statusReportIntervalMs || 30000, // Default 30s
     };
+    this.credentialManager = new CredentialManager(config.storeDir);
   }
 
   /**
@@ -63,7 +66,7 @@ export class Relay {
 
     // Initialize credential manager
     const machineId = getMachineId();
-    await credentialManager.initialize(this.config.apiKey, machineId);
+    await this.credentialManager.initialize(this.config.apiKey, machineId);
     logger.info("Credential manager initialized");
 
     // Verify API key and get assignment
@@ -414,7 +417,7 @@ export class Relay {
       const metrics = await collectMetrics();
 
       // Get credential inventory
-      const credentials = credentialManager.list();
+      const credentials = this.credentialManager.list();
 
       // Get capability info
       const capInfo = await detectCapabilities();
@@ -466,7 +469,7 @@ export class Relay {
    */
   private getCredentialForTarget(targetHost: string): { username: string; privateKey: string } | null {
     // First try to find credential by target host
-    const cred = credentialManager.getForTarget(targetHost);
+    const cred = this.credentialManager.getForTarget(targetHost);
     if (cred && cred.type === "ssh_key") {
       // Parse the value which should contain username and key
       try {

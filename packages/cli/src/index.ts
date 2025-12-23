@@ -19,6 +19,7 @@ Options:
   --poll-interval <ms>      Polling interval in milliseconds (default: 5000)
   --heartbeat-interval <ms> Heartbeat interval in milliseconds (default: 30000)
   --log-level <level>       Log level: debug, info, warn, error (default: info)
+  --store-dir <path>        Custom directory for credential store (default: ~/.remote-cmd-relay)
   --help, -h                Show this help message
   --version, -v             Show version
 
@@ -26,6 +27,7 @@ Examples:
   remote-cmd-relay sk_live_xxx https://my-app.convex.site
   remote-cmd-relay sk_live_xxx https://my-app.convex.site --log-level debug
   remote-cmd-relay sk_live_xxx https://my-app.convex.site --poll-interval 2000
+  remote-cmd-relay sk_live_xxx https://my-app.convex.site --store-dir /path/to/store
 `);
 }
 
@@ -35,6 +37,7 @@ function parseArgs(args: string[]): {
   pollIntervalMs: number;
   heartbeatIntervalMs: number;
   logLevel: "debug" | "info" | "warn" | "error";
+  storeDir?: string;
 } | null {
   const result = {
     apiKey: "",
@@ -42,6 +45,7 @@ function parseArgs(args: string[]): {
     pollIntervalMs: 5000,
     heartbeatIntervalMs: 30000,
     logLevel: "info" as "debug" | "info" | "warn" | "error",
+    storeDir: undefined as string | undefined,
   };
 
   let i = 0;
@@ -82,6 +86,14 @@ function parseArgs(args: string[]): {
         return null;
       }
       result.logLevel = val;
+    } else if (arg === "--store-dir") {
+      i++;
+      const val = args[i];
+      if (!val || val.startsWith("--")) {
+        console.error("Error: --store-dir requires a path argument");
+        return null;
+      }
+      result.storeDir = val;
     } else if (!arg.startsWith("--")) {
       // Positional arguments
       if (!result.apiKey) {
@@ -145,6 +157,7 @@ async function main(): Promise<void> {
     pollIntervalMs: config.pollIntervalMs,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     statusReportIntervalMs: config.heartbeatIntervalMs, // Same as heartbeat by default
+    storeDir: config.storeDir,
   });
 
   // Handle graceful shutdown

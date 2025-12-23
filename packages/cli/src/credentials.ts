@@ -143,7 +143,24 @@ export class CredentialManager {
     this.salt = outer.salt;
     this.encryptionKey = this.deriveKey(apiKey, machineId, this.salt);
 
-    const decrypted = this.decrypt(outer.data);
+    let decrypted: string;
+    try {
+      decrypted = this.decrypt(outer.data);
+    } catch (err) {
+      // AES-GCM decryption fails when the key doesn't match (wrong API key)
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes("Unsupported state") || errorMessage.includes("unable to authenticate")) {
+        throw new Error(
+          `Failed to decrypt credential store: The API key doesn't match the one used to create the store.\n` +
+          `The credential store at '${this.storePath}' was encrypted with a different API key.\n` +
+          `To fix this, either:\n` +
+          `  1. Use the original API key that created this store, or\n` +
+          `  2. Delete the store file and start fresh: rm '${this.storePath}'`
+        );
+      }
+      throw err;
+    }
+
     const store = JSON.parse(decrypted) as CredentialStore;
 
     if (store.version !== STORE_VERSION) {
