@@ -1,0 +1,515 @@
+# Remote Command Relay
+
+> A monorepo for executing commands on remote machines through a Convex backend, enabling secure remote command execution in restricted network segments.
+
+## Overview
+
+Remote Command Relay is a system that enables remote command execution on machines that are not directly accessible from the internet. It consists of two packages:
+
+1. **@fatagnus/remote-cmd-relay** - A CLI tool that runs on target machines, connecting to Convex to poll for and execute commands
+2. **@fatagnus/remote-cmd-relay-convex** - A Convex component providing the backend infrastructure for command queuing, relay management, and status tracking
+
+The relay initiates all connections outbound (no inbound ports required), making it suitable for firewalled/NAT environments.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          CONVEX CENTER                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │ Assignments │  │  Commands   │  │   Status    │  │ Credentials│ │
+│  │   Table     │  │   Queue     │  │   Table     │  │  Inventory │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ HTTPS
+                             │
+┌────────────────────────────▼────────────────────────────────────────┐
+│                        RELAY BINARY                                  │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │  Capability │  │   Command   │  │   Status    │  │ Credential │ │
+│  │  Detection  │  │  Executor   │  │  Reporter   │  │   Store    │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                      │
+│  ┌─────────────┐  ┌─────────────┐                                   │
+│  │   Metrics   │  │    Sync     │                                   │
+│  │  Collector  │  │   Manager   │                                   │
+│  └─────────────┘  └─────────────┘                                   │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+      ┌───────▼───────┐ ┌────▼────┐ ┌──────▼──────┐
+      │ Local Exec    │ │   SSH   │ │   Metrics   │
+      │ (this machine)│ │  Exec   │ │ Collection  │
+      └───────────────┘ └─────────┘ └─────────────┘
+```
+
+## Relay Lifecycle
+
+1. **Authentication** - Relay verifies API key with Convex, receives assignment details
+2. **Capability Detection** - Detects available capabilities (SSH, local commands, metrics)
+3. **Credential Initialization** - Loads encrypted local credential store
+4. **Status Reporting** - Reports capabilities, metrics, and credential inventory to center
+5. **Command Polling** - Continuously polls for pending commands
+6. **Command Execution** - Claims, executes, and reports results for each command
+7. **Heartbeat** - Periodically sends heartbeat to maintain connection status
+
+---
+
+## Package: @fatagnus/remote-cmd-relay (CLI)
+
+### Installation
+
+```bash
+npm install -g @fatagnus/remote-cmd-relay
+```
+
+### Usage
+
+```bash
+remote-cmd-relay <API_KEY> <CONVEX_URL> [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `API_KEY` | Better Auth API key for authentication |
+| `CONVEX_URL` | Convex site URL (e.g., `https://your-app.convex.site`) |
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--poll-interval <ms>` | Command polling interval | 5000 |
+| `--heartbeat-interval <ms>` | Heartbeat/status report interval | 30000 |
+| `--log-level <level>` | Log level: debug, info, warn, error | info |
+
+### Examples
+
+```bash
+# Basic usage
+remote-cmd-relay sk_live_xxxxx https://my-app.convex.site
+
+# With debug logging
+remote-cmd-relay sk_live_xxxxx https://my-app.convex.site --log-level debug
+
+# With faster polling
+remote-cmd-relay sk_live_xxxxx https://my-app.convex.site --poll-interval 2000
+```
+
+### CLI Source Files
+
+| File | Description |
+|------|-------------|
+| `index.ts` | CLI entry point and argument parsing |
+| `relay.ts` | Main Relay class - coordinates all relay operations |
+| `executor.ts` | Local and SSH command execution |
+| `credentials.ts` | AES-256-GCM encrypted credential store |
+| `capabilities.ts` | Capability detection (ssh, local_cmd, perf_metrics) |
+| `metrics.ts` | CPU, memory, disk, load average collection |
+| `sync.ts` | Config/credential sync with center |
+| `logger.ts` | Timestamped logging utility |
+
+### Credential Management
+
+Local credentials are stored encrypted at `~/.remote-cmd-relay/credentials.enc`:
+- **Encryption**: AES-256-GCM
+- **Key derivation**: PBKDF2 with 100,000 iterations
+- **Key material**: API key + machine ID + local salt
+
+### Performance Metrics Collected
+
+- CPU usage percentage
+- Memory usage (percentage, used/total MB)
+- Disk usage (percentage, used/total GB)
+- Load averages (1m, 5m, 15m)
+
+---
+
+## Package: @fatagnus/remote-cmd-relay-convex (Component)
+
+### Installation
+
+```bash
+npm install @fatagnus/remote-cmd-relay-convex
+```
+
+### Registration
+
+```typescript
+// convex/convex.config.ts
+import { defineApp } from "convex/server";
+import remoteCmdRelay from "@fatagnus/remote-cmd-relay-convex";
+
+const app = defineApp();
+app.use(remoteCmdRelay);
+
+export default app;
+```
+
+### Database Schema
+
+#### relayAssignments
+Links Better Auth API keys to machines.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `apiKeyId` | string | Better Auth API key ID |
+| `machineId` | string | Reference to machine in main app |
+| `name` | string | Friendly name for the relay |
+| `enabled` | boolean | Whether the relay is enabled |
+| `lastSeenAt` | number? | Last heartbeat timestamp |
+| `createdBy` | string | User who created the assignment |
+| `createdAt` | number | Creation timestamp |
+| `updatedAt` | number | Last update timestamp |
+
+#### relayStatus
+Tracks relay health, capabilities, and metrics.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `relayId` | string | Reference to relayAssignments._id |
+| `capabilities` | Capability[] | List of capabilities |
+| `metrics` | PerformanceMetrics? | CPU, memory, disk metrics |
+| `version` | string? | Relay binary version |
+| `hostname` | string? | Relay host machine name |
+| `platform` | string? | OS platform |
+| `lastHeartbeatAt` | number | Last heartbeat timestamp |
+
+#### relayCredentialInventory
+Tracks what credentials each relay reports (metadata only, not values).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `relayId` | string | Reference to relayAssignments._id |
+| `credentialName` | string | Name/identifier of the credential |
+| `credentialType` | CredentialType | ssh_key, password, api_key |
+| `targetHost` | string? | What host this credential is for |
+| `storageMode` | StorageMode | relay_only or shared |
+| `lastUpdatedAt` | number | When credential was last updated |
+| `reportedAt` | number | When relay reported this |
+
+#### sharedCredentials
+Backup storage for shared mode credentials (encrypted).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Credential name |
+| `credentialType` | CredentialType | ssh_key, password, api_key |
+| `targetHost` | string? | Target host |
+| `encryptedValue` | string | Encrypted credential value |
+| `assignedRelays` | string[] | Relay IDs this is assigned to |
+| `createdBy` | string | User who created it |
+
+#### configPushQueue
+Queue for pushing configuration updates to relays.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `relayId` | string | Target relay |
+| `pushType` | ConfigPushType | credential, ssh_targets, allowed_commands, metrics_interval |
+| `payload` | string | JSON-encoded payload |
+| `status` | ConfigPushStatus | pending, sent, acked, failed |
+| `createdBy` | string | User who created it |
+| `errorMessage` | string? | Error message if failed |
+
+#### commandQueue
+Commands waiting to be executed by relays.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `machineId` | string | Target machine |
+| `targetType` | TargetType | local or ssh |
+| `targetHost` | string? | SSH target host |
+| `targetPort` | number? | SSH target port |
+| `targetUsername` | string? | SSH username |
+| `command` | string | Command to execute |
+| `timeoutMs` | number | Command timeout |
+| `status` | CommandStatus | pending, claimed, executing, completed, failed, timeout |
+| `claimedBy` | string? | Relay assignment ID that claimed |
+| `claimedAt` | number? | When command was claimed |
+| `output` | string? | Command stdout |
+| `stderr` | string? | Command stderr |
+| `exitCode` | number? | Exit code |
+| `error` | string? | Error message |
+| `durationMs` | number? | Execution duration |
+| `completedAt` | number? | When command completed |
+| `createdBy` | string | User who queued it |
+| `createdAt` | number | Creation timestamp |
+| `updatedAt` | number | Last update timestamp |
+
+### Types
+
+```typescript
+type Capability = "ssh" | "local_cmd" | "perf_metrics";
+
+type CredentialType = "ssh_key" | "password" | "api_key";
+
+type StorageMode = "relay_only" | "shared";
+
+type CommandStatus = "pending" | "claimed" | "executing" | "completed" | "failed" | "timeout";
+
+type TargetType = "local" | "ssh";
+
+type ConfigPushType = "credential" | "ssh_targets" | "allowed_commands" | "metrics_interval";
+
+type ConfigPushStatus = "pending" | "sent" | "acked" | "failed";
+
+interface PerformanceMetrics {
+  cpuPercent?: number;
+  memoryPercent?: number;
+  memoryUsedMb?: number;
+  memoryTotalMb?: number;
+  diskPercent?: number;
+  diskUsedGb?: number;
+  diskTotalGb?: number;
+  loadAvg1m?: number;
+  loadAvg5m?: number;
+  loadAvg15m?: number;
+}
+```
+
+### Convex Functions
+
+#### Assignments (`assignments.ts`)
+
+```typescript
+// Create assignment
+await ctx.runMutation(components.remoteCmdRelay.assignments.create, {
+  apiKeyId: "api_key_id",
+  machineId: "machine_id",
+  name: "Production Relay",
+  createdBy: "user_id",
+});
+
+// List all assignments
+const assignments = await ctx.runQuery(components.remoteCmdRelay.assignments.listAll, {});
+
+// Update assignment
+await ctx.runMutation(components.remoteCmdRelay.assignments.update, {
+  id: assignmentId,
+  enabled: false,
+});
+
+// Delete assignment
+await ctx.runMutation(components.remoteCmdRelay.assignments.remove, { id: assignmentId });
+```
+
+#### Commands (`commands.ts`)
+
+```typescript
+// Queue a local command
+await ctx.runMutation(components.remoteCmdRelay.commands.queue, {
+  machineId: "machine_id",
+  command: "df -h",
+  targetType: "local",
+  timeoutMs: 30000,
+  createdBy: "user_id",
+});
+
+// Queue an SSH command
+await ctx.runMutation(components.remoteCmdRelay.commands.queue, {
+  machineId: "machine_id",
+  command: "systemctl status nginx",
+  targetType: "ssh",
+  targetHost: "192.168.1.100",
+  targetPort: 22,
+  targetUsername: "admin",
+  timeoutMs: 30000,
+  createdBy: "user_id",
+});
+
+// Get pending commands
+const commands = await ctx.runQuery(components.remoteCmdRelay.commands.getPending, {
+  machineId: "machine_id"
+});
+```
+
+#### Status (`status.ts`)
+
+```typescript
+// Report relay status
+await ctx.runMutation(components.remoteCmdRelay.status.reportStatus, {
+  relayId: "relay_id",
+  capabilities: ["ssh", "local_cmd", "perf_metrics"],
+  metrics: { cpuPercent: 25.5, memoryPercent: 60.2, diskPercent: 45.0 },
+  version: "1.0.0",
+  hostname: "prod-server-01",
+  platform: "linux",
+});
+
+// Get status for a relay
+const status = await ctx.runQuery(components.remoteCmdRelay.status.getByRelayId, {
+  relayId: "relay_id"
+});
+
+// Find relays with specific capability
+const sshRelays = await ctx.runQuery(components.remoteCmdRelay.status.findByCapability, {
+  capability: "ssh"
+});
+```
+
+#### Credentials (`credentials.ts`)
+
+```typescript
+// Report credential inventory (relay calls this)
+await ctx.runMutation(components.remoteCmdRelay.credentials.reportInventory, {
+  relayId: "relay_id",
+  credentials: [{
+    credentialName: "prod-server-ssh",
+    credentialType: "ssh_key",
+    targetHost: "192.168.1.100",
+    storageMode: "relay_only",
+    lastUpdatedAt: Date.now(),
+  }],
+});
+
+// Find relays with credentials for a target
+const relays = await ctx.runQuery(components.remoteCmdRelay.credentials.findRelaysForTarget, {
+  targetHost: "192.168.1.100"
+});
+```
+
+#### Config Push (`configPush.ts`)
+
+```typescript
+// Queue a config push
+await ctx.runMutation(components.remoteCmdRelay.configPush.queuePush, {
+  relayId: "relay_id",
+  pushType: "credential",
+  payload: JSON.stringify({ name: "new-credential", ... }),
+  createdBy: "user_id",
+});
+
+// Acknowledge a push
+await ctx.runMutation(components.remoteCmdRelay.configPush.acknowledge, {
+  pushId: "push_id",
+  success: true,
+});
+```
+
+### Public HTTP API (`public.ts`)
+
+Functions accessible by relays over HTTP:
+
+| Function | Description |
+|----------|-------------|
+| `verifyRelay` | Verify API key and get assignment details |
+| `getPendingCommands` | Get pending commands for a machine |
+| `claimCommand` | Atomically claim a command for execution |
+| `submitResult` | Submit command execution results |
+| `sendHeartbeat` | Update last seen timestamp |
+| `reportFullStatus` | Report capabilities, metrics, credential inventory |
+| `getPendingConfigPushes` | Get pending config pushes |
+| `acknowledgeConfigPush` | Acknowledge a config push |
+| `getSharedCredentials` | Get shared credentials assigned to relay |
+
+### HTTP Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/relay/verify` | Verify API key and get assignment |
+| GET | `/relay/commands` | Get pending commands |
+| POST | `/relay/commands/claim` | Claim a command |
+| POST | `/relay/commands/result` | Submit command result |
+| POST | `/relay/heartbeat` | Send heartbeat |
+| POST | `/relay/status` | Report full status |
+
+All endpoints (except `/relay/verify`) require the `X-API-Key` header.
+
+### Component Source Files
+
+| File | Description |
+|------|-------------|
+| `convex.config.ts` | Component definition |
+| `schema.ts` | Database schema and validators |
+| `assignments.ts` | Relay assignment CRUD |
+| `commands.ts` | Command queue management |
+| `status.ts` | Relay status and capability tracking |
+| `credentials.ts` | Credential inventory and shared credentials |
+| `configPush.ts` | Configuration push queue |
+| `public.ts` | HTTP-accessible functions for relays |
+| `component.ts` | Re-exports all Convex functions |
+
+---
+
+## Security Model
+
+### Authentication
+- API keys validated on every request via Better Auth
+- Keys managed with hashing and expiration
+
+### Credential Security
+- `relay_only` credentials never leave the relay machine
+- `shared` credentials stored encrypted on center for backup/recovery
+- Credential inventory reports only metadata (names), not values
+- Local encryption uses AES-256-GCM with PBKDF2 key derivation
+
+### Command Execution
+- Commands routed only to relays assigned to the target machine
+- SSH uses private key authentication
+- Configurable command whitelisting
+
+### Network Security
+- All communication over HTTPS
+- Relay initiates all connections (no inbound ports)
+- Suitable for firewalled/NAT environments
+
+---
+
+## Project Structure
+
+```
+remote-cmd-relay/
+├── packages/
+│   ├── cli/                    # @fatagnus/remote-cmd-relay
+│   │   ├── src/
+│   │   │   ├── index.ts        # CLI entry point
+│   │   │   ├── relay.ts        # Main Relay class
+│   │   │   ├── executor.ts     # Command execution
+│   │   │   ├── credentials.ts  # Encrypted credential store
+│   │   │   ├── capabilities.ts # Capability detection
+│   │   │   ├── metrics.ts      # Performance metrics
+│   │   │   ├── sync.ts         # Config/credential sync
+│   │   │   └── logger.ts       # Logging utility
+│   │   ├── package.json
+│   │   └── Dockerfile
+│   └── convex/                 # @fatagnus/remote-cmd-relay-convex
+│       ├── src/
+│       │   ├── schema.ts       # Database schema
+│       │   ├── assignments.ts  # Assignment management
+│       │   ├── commands.ts     # Command queue
+│       │   ├── status.ts       # Status tracking
+│       │   ├── credentials.ts  # Credential inventory
+│       │   ├── configPush.ts   # Config push queue
+│       │   ├── public.ts       # Public HTTP API
+│       │   └── component.ts    # Function exports
+│       └── package.json
+├── test-project/               # E2E test project
+├── e2e/                        # E2E tests
+├── package.json                # Monorepo root
+└── README.md
+```
+
+---
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build all packages
+npm run build
+
+# Run tests
+npm run test
+
+# Run E2E tests
+npm run test:e2e
+```
+
+## License
+
+Apache-2.0
