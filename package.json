@@ -1,0 +1,23 @@
+{
+  "name": "remote-cmd-relay-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remote Command Relay - CLI tool and Convex component for executing commands on remote machines",
+  "author": "Ozan Turksever <ozan.turksever@gmail.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fatagnus/remote-cmd-relay.git"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@fatagnus/remote-cmd-relay-convex",
+  "version": "1.0.0",
+  "description": "Convex component for managing remote command relays - assignment management, command queuing, status tracking, and credential inventory",
+  "author": "Ozan Turksever <ozan.turksever@gmail.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fatagnus/remote-cmd-relay.git",
+    "directory": "packages/convex"
+  },
+  "type": "module",
+  "main": "./src/component.ts",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "convex": "^1.17.0"
+  },
+  "devDependencies": {
+    "convex": "^1.29.3",
+    "convex-test": "^0.0.41",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "convex",
+    "component",
+    "remote",
+    "command",
+    "relay",
+    "ssh"
+  ]
+}

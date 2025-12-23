@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Convex generated files
+packages/convex/_generated/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.local
+
+# Lock files (using npm)
+bun.lockb
+yarn.lock
+pnpm-lock.yaml
