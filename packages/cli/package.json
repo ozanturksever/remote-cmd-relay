@@ -1,6 +1,6 @@
 {
   "name": "@fatagnus/remote-cmd-relay",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "CLI tool for executing commands on remote machines through a Convex backend",
   "author": "Ozan Turksever <ozan.turksever@gmail.com>",
   "license": "Apache-2.0",
