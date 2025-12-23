@@ -254,7 +254,7 @@ create_github_release() {
 
 #### Via npm/npx
 \`\`\`bash
-npx @fatagnus/remote-cmd-relay --help
+npx @ozanturksever/remote-cmd-relay --help
 \`\`\`
 
 #### Download Binary
@@ -267,11 +267,11 @@ Download the appropriate binary for your platform from the assets below.
 - \`remote-cmd-relay_darwin_arm64\` - macOS Apple Silicon
 
 ### Changelog
-See [commits](https://github.com/fatagnus/remote-cmd-relay/commits/cli-v$version) for changes."
+See [commits](https://github.com/ozanturksever/remote-cmd-relay/commits/cli-v$version) for changes."
 
     # Create release with binaries (use --repo to ensure correct repository)
     gh release create "cli-v$version" \
-        --repo fatagnus/remote-cmd-relay \
+        --repo ozanturksever/remote-cmd-relay \
         --title "CLI v$version" \
         --notes "$release_notes" \
         dist/remote-cmd-relay_linux_amd64 \
@@ -280,7 +280,7 @@ See [commits](https://github.com/fatagnus/remote-cmd-relay/commits/cli-v$version
         dist/remote-cmd-relay_darwin_arm64
     
     log_success "Created GitHub release cli-v$version"
-    log_info "View at: https://github.com/fatagnus/remote-cmd-relay/releases/tag/cli-v$version"
+    log_info "View at: https://github.com/ozanturksever/remote-cmd-relay/releases/tag/cli-v$version"
 }
 
 # Print usage
@@ -397,7 +397,7 @@ main() {
     echo "  • Update version to ${GREEN}$new_version${NC}"
     echo "  • Build npm package and 4 platform binaries"
     echo "  • Create git tag ${CYAN}cli-v$new_version${NC}"
-    echo "  • Publish to npm as ${CYAN}@fatagnus/remote-cmd-relay@$new_version${NC}"
+    echo "  • Publish to npm as ${CYAN}@ozanturksever/remote-cmd-relay@$new_version${NC}"
     echo "  • Create GitHub release with binaries"
     echo ""
     read -p "Continue? (y/N) " -n 1 -r
@@ -445,8 +445,8 @@ main() {
     echo ""
     log_success "Version $new_version released successfully!"
     echo ""
-    echo "  npm:    https://www.npmjs.com/package/@fatagnus/remote-cmd-relay"
-    echo "  GitHub: https://github.com/fatagnus/remote-cmd-relay/releases/tag/cli-v$new_version"
+    echo "  npm:    https://www.npmjs.com/package/@ozanturksever/remote-cmd-relay"
+    echo "  GitHub: https://github.com/ozanturksever/remote-cmd-relay/releases/tag/cli-v$new_version"
     echo ""
 }
 

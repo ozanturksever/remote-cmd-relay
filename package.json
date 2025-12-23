@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fatagnus/remote-cmd-relay.git"
+    "url": "git+https://github.com/ozanturksever/remote-cmd-relay.git"
   },
   "workspaces": [
     "packages/*"
