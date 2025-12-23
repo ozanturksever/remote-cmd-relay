@@ -205,15 +205,13 @@ git_commit_and_tag() {
     
     log_step "Creating git commit and tag"
     
-    # Check for uncommitted changes (other than our version updates)
-    if ! git diff --quiet HEAD -- ':!packages/cli/package.json' ':!packages/cli/src/index.ts' 2>/dev/null; then
-        log_warning "You have uncommitted changes. Please commit or stash them first."
-        git status --short
-        read -p "Continue anyway? (y/N) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
+    # The script updates package.json and src/index.ts, so those changes are expected
+    # Only warn about OTHER uncommitted changes
+    local other_changes=$(git status --short | grep -v 'package.json' | grep -v 'src/index.ts')
+    if [ -n "$other_changes" ]; then
+        log_warning "You have other uncommitted changes:"
+        echo "$other_changes"
+        log_info "These will NOT be included in the release commit."
     fi
     
     git add package.json src/index.ts
