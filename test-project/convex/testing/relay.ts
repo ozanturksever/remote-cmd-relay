@@ -1,7 +1,8 @@
-import { testingMutation, testingQuery } from "./lib";
+import { testingMutation, testingQuery, testingAction } from "./lib";
 import { v } from "convex/values";
 import { components } from "../_generated/api";
 import type { Id } from "../../../packages/convex/src/_generated/dataModel";
+import { exec, execAsync } from "../../../packages/convex/src/execHelper";
 
 /**
  * Generate a simple random string for test API keys.
@@ -307,5 +308,155 @@ export const listTestCredentialInventory = testingQuery({
       { relayId: args.relayId }
     );
     return inventory;
+  },
+});
+
+/**
+ * Queue an RPC command and return the command ID.
+ * Use getCommandResult to poll for the result.
+ */
+export const queueRpcCommand = testingMutation({
+  args: {
+    machineId: v.string(),
+    command: v.string(),
+    targetType: v.union(v.literal("local"), v.literal("ssh")),
+    targetHost: v.optional(v.string()),
+    targetPort: v.optional(v.number()),
+    targetUsername: v.optional(v.string()),
+    timeoutMs: v.optional(v.number()),
+    createdBy: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.runMutation(
+      components.remoteCmdRelay.rpc.queueRpcCommand,
+      {
+        machineId: args.machineId,
+        command: args.command,
+        targetType: args.targetType,
+        targetHost: args.targetHost,
+        targetPort: args.targetPort,
+        targetUsername: args.targetUsername,
+        timeoutMs: args.timeoutMs ?? 30000,
+        createdBy: args.createdBy,
+      }
+    );
+    return result;
+  },
+});
+
+/**
+ * Get the result of an RPC command.
+ * Poll this until status is "completed", "failed", or "timeout".
+ */
+export const getCommandResult = testingQuery({
+  args: {
+    commandId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.runQuery(
+      components.remoteCmdRelay.rpc.getCommandResult,
+      {
+        commandId: args.commandId as Id<"commandQueue">,
+      }
+    );
+    return result;
+  },
+});
+
+// ===== Synchronous RPC Test Actions =====
+
+/**
+ * Execute a command synchronously using the exec helper.
+ * This action queues a command and polls until completion.
+ */
+export const execCommandAction = testingAction({
+  args: {
+    machineId: v.string(),
+    command: v.string(),
+    targetType: v.union(v.literal("local"), v.literal("ssh")),
+    targetHost: v.optional(v.string()),
+    targetPort: v.optional(v.number()),
+    targetUsername: v.optional(v.string()),
+    timeoutMs: v.optional(v.number()),
+    createdBy: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+      machineId: args.machineId,
+      command: args.command,
+      targetType: args.targetType,
+      targetHost: args.targetHost,
+      targetPort: args.targetPort,
+      targetUsername: args.targetUsername,
+      timeoutMs: args.timeoutMs ?? 30000,
+      createdBy: args.createdBy,
+      pollIntervalMs: 200, // Faster polling for tests
+    });
+    return result;
+  },
+});
+
+/**
+ * Execute a command asynchronously using the execAsync helper.
+ * This action queues a command and returns immediately with the command ID.
+ */
+export const execAsyncAction = testingAction({
+  args: {
+    machineId: v.string(),
+    command: v.string(),
+    targetType: v.union(v.literal("local"), v.literal("ssh")),
+    targetHost: v.optional(v.string()),
+    targetPort: v.optional(v.number()),
+    targetUsername: v.optional(v.string()),
+    timeoutMs: v.optional(v.number()),
+    createdBy: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const result = await execAsync(ctx, components.remoteCmdRelay.rpc, {
+      machineId: args.machineId,
+      command: args.command,
+      targetType: args.targetType,
+      targetHost: args.targetHost,
+      targetPort: args.targetPort,
+      targetUsername: args.targetUsername,
+      timeoutMs: args.timeoutMs ?? 30000,
+      createdBy: args.createdBy,
+    });
+    return result;
+  },
+});
+
+/**
+ * Execute a command with retry support.
+ * Tests the retry functionality of the exec helper.
+ */
+export const execWithRetryAction = testingAction({
+  args: {
+    machineId: v.string(),
+    command: v.string(),
+    targetType: v.union(v.literal("local"), v.literal("ssh")),
+    targetHost: v.optional(v.string()),
+    targetPort: v.optional(v.number()),
+    targetUsername: v.optional(v.string()),
+    timeoutMs: v.optional(v.number()),
+    createdBy: v.string(),
+    retries: v.optional(v.number()),
+    retryDelayMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+      machineId: args.machineId,
+      command: args.command,
+      targetType: args.targetType,
+      targetHost: args.targetHost,
+      targetPort: args.targetPort,
+      targetUsername: args.targetUsername,
+      timeoutMs: args.timeoutMs ?? 30000,
+      createdBy: args.createdBy,
+      pollIntervalMs: 200,
+      retries: args.retries ?? 0,
+      retryDelayMs: args.retryDelayMs ?? 1000,
+    });
+    return result;
   },
 });

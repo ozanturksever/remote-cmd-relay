@@ -39,6 +39,36 @@ The Remote Command Relay system enables remote command execution on machines in 
 3. **Tracking status** - Monitor relay health, capabilities, and metrics
 4. **Credential inventory** - Track what credentials each relay has (metadata only)
 5. **Configuration push** - Push config updates to relays
+6. **RPC interface** - Call relay commands synchronously from Convex actions
+
+## RPC Quick Start
+
+Execute commands on remote machines directly from your Convex actions:
+
+```typescript
+import { exec } from "@fatagnus/remote-cmd-relay-convex";
+import { components } from "./_generated/api";
+import { action } from "./_generated/server";
+
+export const runCommand = action({
+  handler: async (ctx) => {
+    const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+      machineId: "my-machine",
+      command: "df -h",
+      targetType: "local",
+      createdBy: "system",
+    });
+    
+    return result.success ? result.output : result.error;
+  },
+});
+```
+
+For sub-second latency, run the relay in subscription mode:
+
+```bash
+remote-cmd-relay API_KEY https://app.convex.site --deployment-url https://app.convex.cloud
+```
 
 ## Architecture
 
@@ -58,6 +88,11 @@ The Remote Command Relay system enables remote command execution on machines in 
 │  │  Capability │  │   Command   │  │   Status    │  │ Credential │ │
 │  │  Detection  │  │  Executor   │  │  Reporter   │  │   Store    │ │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
+│                                                                      │
+│                    ┌─────────────────────────────┐                  │
+│                    │  Subscription Mode (RPC)    │                  │
+│                    │  WebSocket for instant cmds │                  │
+│                    └─────────────────────────────┘                  │
 └────────────────────────────┬────────────────────────────────────────┘
                              │
               ┌──────────────┼──────────────┐

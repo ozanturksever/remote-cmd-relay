@@ -295,6 +295,158 @@ await ctx.runMutation(components.remoteCmdRelay.configPush.acknowledge, {
 });
 ```
 
+### RPC (`rpc.ts`)
+
+Synchronous command execution API for calling relay functions from Convex actions:
+
+```typescript
+// Queue a command and get command ID for polling
+const result = await ctx.runMutation(
+  components.remoteCmdRelay.rpc.queueRpcCommand,
+  {
+    machineId: "machine_id",
+    command: "df -h",
+    targetType: "local",
+    timeoutMs: 30000,
+    createdBy: "user_id",
+  }
+);
+// result: { success: true, commandId: "cmd_xxx" }
+
+// Poll for command result
+const status = await ctx.runQuery(
+  components.remoteCmdRelay.rpc.getCommandResult,
+  { commandId: result.commandId }
+);
+// status: { found: true, status: "completed", output: "...", exitCode: 0 }
+```
+
+#### Using the `exec` Helper (Recommended)
+
+For a simpler synchronous RPC-like interface, use the `exec` helper in your Convex actions:
+
+```typescript
+import { exec } from "@fatagnus/remote-cmd-relay-convex";
+import { components } from "./_generated/api";
+import { action } from "./_generated/server";
+
+export const runCommand = action({
+  args: { machineId: v.string(), command: v.string() },
+  handler: async (ctx, args) => {
+    const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+      machineId: args.machineId,
+      command: args.command,
+      targetType: "local",
+      createdBy: "system",
+      timeoutMs: 30000,
+    });
+
+    if (result.success) {
+      return { output: result.output };
+    } else {
+      throw new Error(result.error);
+    }
+  },
+});
+```
+
+The `exec` helper:
+- Queues the command
+- Polls until completion or timeout
+- Returns the full result with output, stderr, exit code, and duration
+- Supports automatic retries for transient failures
+
+#### Retry Configuration
+
+```typescript
+const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+  machineId: "my-machine",
+  command: "curl https://api.example.com/data",
+  targetType: "local",
+  createdBy: "system",
+  // Retry options
+  retries: 3,           // Retry up to 3 times on transient failures
+  retryDelayMs: 1000,   // Wait 1 second between retries
+  // Optional: custom retry logic
+  shouldRetry: (error, attempt) => {
+    return error.message.includes("network") && attempt < 3;
+  },
+});
+
+console.log(`Completed in ${result.attempts} attempt(s)`);
+```
+
+Transient failures that are automatically retried:
+- Network errors (connection reset, refused)
+- Timeout errors
+- Rate limiting (429, 503)
+- Temporary unavailability
+
+#### Using `execAsync` for Fire-and-Forget
+
+For long-running commands where you don't want to wait:
+
+```typescript
+import { execAsync } from "@fatagnus/remote-cmd-relay-convex";
+
+export const startBackup = action({
+  handler: async (ctx) => {
+    const { commandId } = await execAsync(ctx, components.remoteCmdRelay.rpc, {
+      machineId: "backup-server",
+      command: "./run-backup.sh",
+      targetType: "local",
+      createdBy: "system",
+      timeoutMs: 3600000, // 1 hour
+    });
+
+    // Return immediately, check status later
+    return { commandId };
+  },
+});
+```
+
+#### SSH Commands via RPC
+
+```typescript
+const result = await exec(ctx, components.remoteCmdRelay.rpc, {
+  machineId: "relay-machine",
+  command: "systemctl status nginx",
+  targetType: "ssh",
+  targetHost: "192.168.1.100",
+  targetPort: 22,
+  targetUsername: "admin",
+  createdBy: "user_id",
+  timeoutMs: 30000,
+});
+```
+
+#### RPC Response Types
+
+```typescript
+// ExecResult from exec()
+interface ExecResult {
+  success: boolean;      // true if exitCode === 0
+  output?: string;       // stdout
+  stderr?: string;       // stderr
+  exitCode?: number;     // process exit code
+  error?: string;        // error message if failed
+  durationMs?: number;   // execution duration
+  timedOut?: boolean;    // true if timed out
+  attempts?: number;     // number of attempts made
+}
+
+// getCommandResult response
+interface CommandResult {
+  found: boolean;
+  status: "pending" | "claimed" | "executing" | "completed" | "failed" | "timeout";
+  output?: string;
+  stderr?: string;
+  exitCode?: number;
+  error?: string;
+  durationMs?: number;
+}
+```
+
 ### Public API (`public.ts`)
 
 HTTP-accessible functions for relay communication:
@@ -389,6 +541,21 @@ type ConfigPushType =
   | "metrics_interval";
 ```
 
+## RPC Mode Setup
+
+To enable fast RPC command execution, run the relay in **subscription mode**:
+
+```bash
+# Standard polling mode (5 second latency)
+remote-cmd-relay API_KEY https://app.convex.site
+
+# Subscription mode (sub-second latency for RPC)
+remote-cmd-relay API_KEY https://app.convex.site \
+  --deployment-url https://app.convex.cloud
+```
+
+In subscription mode, the relay uses Convex WebSocket subscriptions to receive commands instantly instead of polling.
+
 ## Security Considerations
 
 1. **API Key Validation**: All relay communication is authenticated via Better Auth API keys
@@ -411,3 +578,5 @@ type ConfigPushType =
 | `credentials.ts` | Credential inventory and shared credentials |
 | `configPush.ts` | Configuration push queue |
 | `public.ts` | HTTP-accessible functions for relays |
+| `rpc.ts` | RPC interface for synchronous command execution |
+| `execHelper.ts` | Helper functions (`exec`, `execAsync`) for actions |

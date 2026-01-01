@@ -78,6 +78,9 @@ bun run build:binaries # Build standalone binaries for all platforms
 | `--poll-interval <ms>` | Command polling interval | 5000 |
 | `--heartbeat-interval <ms>` | Heartbeat/status report interval | 30000 |
 | `--log-level <level>` | Log level: debug, info, warn, error | info |
+| `--store-dir <path>` | Custom directory for credential store | ~/.remote-cmd-relay |
+| `--deployment-url <url>` | Convex deployment URL for subscription mode | - |
+| `--component-name <name>` | Convex component name | remoteCmdRelay |
 | `--help, -h` | Show help message | - |
 | `--version, -v` | Show version | - |
 
@@ -95,6 +98,10 @@ bun run build:binaries # Build standalone binaries for all platforms
 
 # With more frequent heartbeats (10 seconds)
 ./remote-cmd-relay sk_live_xxxxx https://my-app.convex.site --heartbeat-interval 10000
+
+# Subscription mode for real-time RPC (recommended for low latency)
+./remote-cmd-relay sk_live_xxxxx https://my-app.convex.site \
+  --deployment-url https://my-app.convex.cloud
 ```
 
 ## Features
@@ -268,6 +275,32 @@ await queueCommand({
 - Commands validated against whitelist (configurable)
 - SSH uses private key authentication
 - Each relay only processes commands for its assigned machine
+
+## Operating Modes
+
+### Polling Mode (Default)
+
+The relay polls the Convex backend at regular intervals (default: 5 seconds) to check for pending commands. This is simple and works everywhere but has higher latency.
+
+```bash
+./remote-cmd-relay sk_live_xxxxx https://my-app.convex.site
+```
+
+### Subscription Mode (Recommended for RPC)
+
+The relay maintains a WebSocket connection to Convex and receives commands instantly via subscriptions. This enables sub-second latency for RPC-style command execution.
+
+```bash
+./remote-cmd-relay sk_live_xxxxx https://my-app.convex.site \
+  --deployment-url https://my-app.convex.cloud
+```
+
+**When to use subscription mode:**
+- When using the `exec()` helper in Convex actions
+- When you need synchronous command execution
+- When low latency is important
+
+**Note:** The `--deployment-url` should be your Convex deployment URL (ending in `.convex.cloud`), not your site URL (ending in `.convex.site`).
 
 ### Network Security
 - All communication over HTTPS

@@ -1,10 +1,12 @@
 import {
   customQuery,
   customMutation,
+  customAction,
 } from "convex-helpers/server/customFunctions";
 import {
   query,
   mutation,
+  action,
 } from "../_generated/server";
 import { components } from "../_generated/api";
 
@@ -35,6 +37,17 @@ export const testingQuery = customQuery(query, {
  * A test-only mutation that checks for IS_TEST environment variable.
  */
 export const testingMutation = customMutation(mutation, {
+  args: {},
+  input: async (_ctx) => {
+    requireTestEnv();
+    return { ctx: {}, args: {} };
+  },
+});
+
+/**
+ * A test-only action that checks for IS_TEST environment variable.
+ */
+export const testingAction = customAction(action, {
   args: {},
   input: async (_ctx) => {
     requireTestEnv();

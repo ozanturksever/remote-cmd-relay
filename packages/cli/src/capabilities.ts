@@ -2,6 +2,8 @@ import { logger } from "./logger.js";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as crypto from "crypto";
+import { execSync } from "child_process";
 
 export type Capability = "ssh" | "local_cmd" | "perf_metrics";
 
@@ -101,7 +103,6 @@ export function getMachineId(): string {
   } else if (platform === "darwin") {
     // Use hardware UUID on macOS
     try {
-      const { execSync } = require("child_process");
       const output = execSync("ioreg -rd1 -c IOPlatformExpertDevice | grep IOPlatformUUID", {
         encoding: "utf8",
       });
@@ -118,6 +119,5 @@ export function getMachineId(): string {
   const combined = `${hostname}:${platform}:${machineSpecific || "default"}`;
   
   // Create a hash for consistency
-  const crypto = require("crypto");
   return crypto.createHash("sha256").update(combined).digest("hex").substring(0, 32);
 }

@@ -20,14 +20,24 @@ Options:
   --heartbeat-interval <ms> Heartbeat interval in milliseconds (default: 30000)
   --log-level <level>       Log level: debug, info, warn, error (default: info)
   --store-dir <path>        Custom directory for credential store (default: ~/.remote-cmd-relay)
+  --deployment-url <url>    Convex deployment URL for subscription mode (enables real-time command pickup)
+  --component-name <name>   Convex component name (default: remoteCmdRelay)
   --help, -h                Show this help message
   --version, -v             Show version
+
+Modes:
+  Polling mode (default):     Uses HTTP polling to check for commands
+  Subscription mode:          Uses Convex WebSocket subscriptions for instant command pickup
+                              Enable by providing --deployment-url
 
 Examples:
   remote-cmd-relay sk_live_xxx https://my-app.convex.site
   remote-cmd-relay sk_live_xxx https://my-app.convex.site --log-level debug
   remote-cmd-relay sk_live_xxx https://my-app.convex.site --poll-interval 2000
   remote-cmd-relay sk_live_xxx https://my-app.convex.site --store-dir /path/to/store
+  
+  # Subscription mode (real-time):
+  remote-cmd-relay sk_live_xxx https://my-app.convex.site --deployment-url https://my-app.convex.cloud
 `);
 }
 
@@ -38,6 +48,8 @@ function parseArgs(args: string[]): {
   heartbeatIntervalMs: number;
   logLevel: "debug" | "info" | "warn" | "error";
   storeDir?: string;
+  convexDeploymentUrl?: string;
+  componentName?: string;
 } | null {
   const result = {
     apiKey: "",
@@ -46,6 +58,8 @@ function parseArgs(args: string[]): {
     heartbeatIntervalMs: 30000,
     logLevel: "info" as "debug" | "info" | "warn" | "error",
     storeDir: undefined as string | undefined,
+    convexDeploymentUrl: undefined as string | undefined,
+    componentName: undefined as string | undefined,
   };
 
   let i = 0;
@@ -94,6 +108,22 @@ function parseArgs(args: string[]): {
         return null;
       }
       result.storeDir = val;
+    } else if (arg === "--deployment-url") {
+      i++;
+      const val = args[i];
+      if (!val || val.startsWith("--")) {
+        console.error("Error: --deployment-url requires a URL argument");
+        return null;
+      }
+      result.convexDeploymentUrl = val;
+    } else if (arg === "--component-name") {
+      i++;
+      const val = args[i];
+      if (!val || val.startsWith("--")) {
+        console.error("Error: --component-name requires a name argument");
+        return null;
+      }
+      result.componentName = val;
     } else if (!arg.startsWith("--")) {
       // Positional arguments
       if (!result.apiKey) {
@@ -149,6 +179,7 @@ async function main(): Promise<void> {
     convexUrl: config.convexUrl,
     pollIntervalMs: config.pollIntervalMs,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
+    mode: config.convexDeploymentUrl ? "subscription" : "polling",
   });
 
   const relay = new Relay({
@@ -158,6 +189,8 @@ async function main(): Promise<void> {
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     statusReportIntervalMs: config.heartbeatIntervalMs, // Same as heartbeat by default
     storeDir: config.storeDir,
+    convexDeploymentUrl: config.convexDeploymentUrl,
+    componentName: config.componentName,
   });
 
   // Handle graceful shutdown

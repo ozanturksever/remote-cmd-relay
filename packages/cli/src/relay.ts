@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { ConvexClient } from "convex/browser";
+import { anyApi } from "convex/server";
 import { logger } from "./logger.js";
 import { executeLocal, executeSSH, type ExecutionResult } from "./executor.js";
 import { CredentialManager, type CredentialMetadata } from "./credentials.js";
@@ -14,6 +16,8 @@ export interface RelayConfig {
   statusReportIntervalMs: number;
   sharedSecretKey?: string; // For decrypting shared credentials
   storeDir?: string; // Custom directory for credential store
+  convexDeploymentUrl?: string; // Convex deployment URL for subscription mode (e.g., https://your-app.convex.cloud)
+  componentName?: string; // Convex component name (default: "remoteCmdRelay")
 }
 
 export interface RelayAssignment {
@@ -44,11 +48,15 @@ export class Relay {
   private capabilities: Capability[] = [];
   private syncManager: SyncManager | null = null;
   private credentialManager: CredentialManager;
+  private convexClient: ConvexClient | null = null;
+  private subscriptionUnsubscribe: (() => void) | null = null;
+  private processingCommands: Set<string> = new Set(); // Track commands being processed
 
   constructor(config: RelayConfig) {
     this.config = {
       ...config,
       statusReportIntervalMs: config.statusReportIntervalMs || 30000, // Default 30s
+      componentName: config.componentName || "remoteCmdRelay",
     };
     this.credentialManager = new CredentialManager(config.storeDir);
   }
@@ -93,11 +101,16 @@ export class Relay {
     // Initial sync
     await this.syncManager.fullSync();
 
-    // Start polling for commands
-    this.pollInterval = setInterval(
-      () => this.pollForCommands(),
-      this.config.pollIntervalMs
-    );
+    // Start watching for commands - use subscription mode if deployment URL is provided
+    if (this.config.convexDeploymentUrl) {
+      await this.startSubscriptionMode();
+    } else {
+      // Fall back to HTTP polling
+      this.pollInterval = setInterval(
+        () => this.pollForCommands(),
+        this.config.pollIntervalMs
+      );
+    }
 
     // Start heartbeat
     this.heartbeatInterval = setInterval(
@@ -111,14 +124,199 @@ export class Relay {
       this.config.statusReportIntervalMs
     );
 
-    // Initial poll
-    await this.pollForCommands();
+    // Initial poll (only if not using subscription mode)
+    if (!this.config.convexDeploymentUrl) {
+      await this.pollForCommands();
+    }
 
     logger.info("Relay started successfully", {
       machineId: this.assignment?.machineId,
       name: this.assignment?.name,
       capabilities: this.capabilities,
+      mode: this.config.convexDeploymentUrl ? "subscription" : "polling",
     });
+  }
+
+  /**
+   * Start subscription mode using Convex client
+   */
+  private async startSubscriptionMode(): Promise<void> {
+    if (!this.config.convexDeploymentUrl || !this.assignment) {
+      throw new Error("Subscription mode requires convexDeploymentUrl and valid assignment");
+    }
+
+    logger.info("Starting subscription mode...", {
+      deploymentUrl: this.config.convexDeploymentUrl,
+    });
+
+    // Create Convex client
+    this.convexClient = new ConvexClient(this.config.convexDeploymentUrl);
+
+    // Build the API reference for the component's getPendingCommands query
+    const componentName = this.config.componentName!;
+    const getPendingCommandsRef = anyApi.components[componentName].public.getPendingCommands;
+
+    // Subscribe to pending commands
+    const machineId = this.assignment.machineId;
+
+    this.subscriptionUnsubscribe = this.convexClient.onUpdate(
+      getPendingCommandsRef,
+      { machineId },
+      (commands: Command[]) => {
+        if (!this.running) return;
+
+        if (commands && commands.length > 0) {
+          logger.debug(`Subscription received ${commands.length} pending command(s)`);
+
+          // Process commands that aren't already being processed
+          for (const cmd of commands) {
+            if (!this.processingCommands.has(cmd._id)) {
+              this.processingCommands.add(cmd._id);
+              this.processCommandViaConvex(cmd).finally(() => {
+                this.processingCommands.delete(cmd._id);
+              });
+            }
+          }
+        }
+      }
+    );
+
+    logger.info("Subscription mode started");
+  }
+
+  /**
+   * Process a command using direct Convex mutations (subscription mode)
+   */
+  private async processCommandViaConvex(cmd: Command): Promise<void> {
+    if (!this.convexClient || !this.assignment) return;
+
+    logger.info(`Processing command ${cmd._id} via Convex`, {
+      command: cmd.command.substring(0, 50),
+      targetType: cmd.targetType,
+    });
+
+    const componentName = this.config.componentName!;
+
+    // Claim the command via Convex mutation
+    const claimCommandRef = anyApi.components[componentName].public.claimCommand;
+
+    try {
+      const claimResult = await this.convexClient.mutation(claimCommandRef, {
+        commandId: cmd._id,
+        assignmentId: this.assignment.assignmentId,
+      });
+
+      if (!claimResult.success) {
+        logger.warn(`Failed to claim command ${cmd._id}: ${claimResult.error}`);
+        return;
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to claim command ${cmd._id}`, { error });
+      return;
+    }
+
+    // Execute the command
+    let result: ExecutionResult;
+
+    if (cmd.targetType === "local") {
+      result = await executeLocal({
+        command: cmd.command,
+        timeoutMs: cmd.timeoutMs,
+      });
+    } else if (cmd.targetType === "ssh") {
+      if (!cmd.targetHost) {
+        result = {
+          success: false,
+          output: "",
+          stderr: "",
+          exitCode: -1,
+          error: "SSH target host missing",
+          durationMs: 0,
+        };
+      } else {
+        // Try to get credentials from local credential store
+        let privateKey = "";
+        let username = cmd.targetUsername || "root";
+
+        const storedCred = this.getCredentialForTarget(cmd.targetHost);
+        if (storedCred) {
+          privateKey = storedCred.privateKey;
+          username = storedCred.username;
+          logger.debug(`Using stored credential for ${cmd.targetHost}`);
+        } else {
+          // Fall back to reading from ~/.ssh/id_rsa
+          try {
+            const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+            privateKey = await readFile(`${homeDir}/.ssh/id_rsa`, "utf-8");
+            logger.debug("Using default SSH key from ~/.ssh/id_rsa");
+          } catch {
+            result = {
+              success: false,
+              output: "",
+              stderr: "",
+              exitCode: -1,
+              error: `No credentials found for ${cmd.targetHost} and failed to read default SSH key`,
+              durationMs: 0,
+            };
+            await this.submitResultViaConvex(cmd._id, result);
+            return;
+          }
+        }
+
+        result = await executeSSH({
+          command: cmd.command,
+          host: cmd.targetHost,
+          port: cmd.targetPort ?? 22,
+          username,
+          privateKey,
+          timeoutMs: cmd.timeoutMs,
+        });
+      }
+    } else {
+      result = {
+        success: false,
+        output: "",
+        stderr: "",
+        exitCode: -1,
+        error: `Unknown target type: ${cmd.targetType}`,
+        durationMs: 0,
+      };
+    }
+
+    // Submit result via Convex mutation
+    await this.submitResultViaConvex(cmd._id, result);
+
+    logger.info(`Command ${cmd._id} completed`, {
+      success: result.success,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+    });
+  }
+
+  /**
+   * Submit command result via Convex mutation (subscription mode)
+   */
+  private async submitResultViaConvex(commandId: string, result: ExecutionResult): Promise<void> {
+    if (!this.convexClient) return;
+
+    const componentName = this.config.componentName!;
+    const submitResultRef = anyApi.components[componentName].public.submitResult;
+
+    try {
+      await this.convexClient.mutation(submitResultRef, {
+        commandId,
+        success: result.success,
+        output: result.output,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        error: result.error,
+        durationMs: result.durationMs,
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error("Failed to submit result via Convex", { commandId, error });
+    }
   }
 
   /**
@@ -141,6 +339,18 @@ export class Relay {
     if (this.statusReportInterval) {
       clearInterval(this.statusReportInterval);
       this.statusReportInterval = null;
+    }
+
+    // Clean up Convex subscription
+    if (this.subscriptionUnsubscribe) {
+      this.subscriptionUnsubscribe();
+      this.subscriptionUnsubscribe = null;
+    }
+
+    // Close Convex client
+    if (this.convexClient) {
+      this.convexClient.close();
+      this.convexClient = null;
     }
 
     logger.info("Relay stopped");

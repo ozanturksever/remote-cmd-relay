@@ -6,5 +6,6 @@ export default defineConfig({
     environment: "node",
     testTimeout: 180000, // 3 minutes for e2e tests
     hookTimeout: 180000,
+    fileParallelism: false, // Run e2e tests sequentially to avoid port conflicts
   },
 });
