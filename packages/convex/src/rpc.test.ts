@@ -293,6 +293,328 @@ describe("rpc", () => {
     });
   });
 
+  describe("getCommandStream", () => {
+    it("returns found: false for non-existent command", async () => {
+      const cmd = await createMockCommand(t, { status: "pending" });
+      await t.run(async (ctx) => {
+        await ctx.db.delete(cmd._id);
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(false);
+    });
+
+    it("returns partial output for executing command", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "executing",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          partialOutput: "Processing line 1\nProcessing line 2\n",
+          partialStderr: "Warning: something\n",
+        });
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("executing");
+        expect(result.partialOutput).toBe("Processing line 1\nProcessing line 2\n");
+        expect(result.partialStderr).toBe("Warning: something\n");
+        expect(result.done).toBe(false);
+        expect(result.output).toBeUndefined();
+      }
+    });
+
+    it("returns partial output with offset", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "executing",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          partialOutput: "Line 1\nLine 2\nLine 3\n",
+        });
+      });
+
+      // Request output starting from offset 7 (after "Line 1\n")
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+        outputOffset: 7,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.partialOutput).toBe("Line 2\nLine 3\n");
+        expect(result.done).toBe(false);
+      }
+    });
+
+    it("returns final output when command is completed", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "completed",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          output: "Final output\n",
+          stderr: "Final stderr\n",
+          exitCode: 0,
+          partialOutput: "Should be ignored",
+        });
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("completed");
+        expect(result.output).toBe("Final output\n");
+        expect(result.stderr).toBe("Final stderr\n");
+        expect(result.exitCode).toBe(0);
+        expect(result.done).toBe(true);
+        expect(result.partialOutput).toBeUndefined();
+      }
+    });
+
+    it("returns done: true for failed command", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "failed",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          stderr: "Error message",
+          exitCode: 1,
+          error: "Command failed",
+        });
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("failed");
+        expect(result.done).toBe(true);
+        expect(result.error).toBe("Command failed");
+      }
+    });
+
+    it("returns done: true for timeout command", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "timeout",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          error: "Command timed out",
+        });
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("timeout");
+        expect(result.done).toBe(true);
+      }
+    });
+
+    it("returns empty partial output for pending command", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "pending",
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("pending");
+        expect(result.done).toBe(false);
+        expect(result.partialOutput).toBeUndefined();
+      }
+    });
+
+    it("returns empty partial output for claimed command", async () => {
+      const cmd = await createMockCommand(t, {
+        machineId: "machine-1",
+        status: "claimed",
+        claimedBy: "relay-1",
+      });
+
+      const result = await t.query(api.rpc.getCommandStream, {
+        commandId: cmd._id,
+      });
+
+      expect(result.found).toBe(true);
+      if (result.found) {
+        expect(result.status).toBe("claimed");
+        expect(result.done).toBe(false);
+      }
+    });
+  });
+
+  describe("streaming workflow", () => {
+    it("simulates real-time streaming: queue -> claim -> stream updates -> complete", async () => {
+      // 1. Queue command
+      const queueResult = await t.mutation(api.rpc.queueRpcCommand, {
+        machineId: "stream-machine",
+        command: "long-running-command",
+        targetType: "local",
+        createdBy: "test-user",
+      });
+
+      expect(queueResult.success).toBe(true);
+      const commandId = queueResult.commandId!;
+
+      // 2. Verify command is pending, no streaming data
+      let streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      expect(streamResult.found).toBe(true);
+      if (streamResult.found) {
+        expect(streamResult.status).toBe("pending");
+        expect(streamResult.done).toBe(false);
+      }
+
+      // 3. Relay claims command
+      await t.mutation(api.commands.claim, {
+        id: commandId,
+        claimedBy: "relay-1",
+      });
+
+      // 4. Relay sends first streaming update
+      await t.mutation(api.public.updatePartialOutput, {
+        commandId,
+        partialOutput: "Step 1: Starting...\n",
+      });
+
+      streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      if (streamResult.found) {
+        expect(streamResult.status).toBe("executing");
+        expect(streamResult.partialOutput).toBe("Step 1: Starting...\n");
+        expect(streamResult.done).toBe(false);
+      }
+
+      // 5. Relay sends second streaming update
+      await t.mutation(api.public.updatePartialOutput, {
+        commandId,
+        partialOutput: "Step 1: Starting...\nStep 2: Processing...\n",
+      });
+
+      // Client polls with offset to get only new content
+      streamResult = await t.query(api.rpc.getCommandStream, {
+        commandId,
+        outputOffset: 20, // Length of first message
+      });
+      if (streamResult.found) {
+        expect(streamResult.partialOutput).toBe("Step 2: Processing...\n");
+      }
+
+      // 6. Relay sends third streaming update with stderr
+      await t.mutation(api.public.updatePartialOutput, {
+        commandId,
+        partialOutput: "Step 1: Starting...\nStep 2: Processing...\nStep 3: Finishing...\n",
+        partialStderr: "Warning: deprecated API\n",
+      });
+
+      streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      if (streamResult.found) {
+        expect(streamResult.partialStderr).toBe("Warning: deprecated API\n");
+      }
+
+      // 7. Relay completes command
+      await t.mutation(api.commands.complete, {
+        id: commandId,
+        success: true,
+        output: "Step 1: Starting...\nStep 2: Processing...\nStep 3: Finishing...\nDone!\n",
+        exitCode: 0,
+        durationMs: 5000,
+      });
+
+      // 8. Client gets final result
+      streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      if (streamResult.found) {
+        expect(streamResult.status).toBe("completed");
+        expect(streamResult.done).toBe(true);
+        expect(streamResult.output).toContain("Done!");
+        expect(streamResult.exitCode).toBe(0);
+        expect(streamResult.partialOutput).toBeUndefined();
+      }
+    });
+
+    it("streaming with command failure", async () => {
+      // 1. Queue command
+      const queueResult = await t.mutation(api.rpc.queueRpcCommand, {
+        machineId: "fail-stream-machine",
+        command: "failing-command",
+        targetType: "local",
+        createdBy: "test-user",
+      });
+
+      const commandId = queueResult.commandId!;
+
+      // 2. Claim and start streaming
+      await t.mutation(api.commands.claim, {
+        id: commandId,
+        claimedBy: "relay-1",
+      });
+
+      await t.mutation(api.public.updatePartialOutput, {
+        commandId,
+        partialOutput: "Starting...\n",
+        partialStderr: "Error: something went wrong\n",
+      });
+
+      // 3. Verify streaming state
+      let streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      if (streamResult.found) {
+        expect(streamResult.status).toBe("executing");
+        expect(streamResult.partialStderr).toBe("Error: something went wrong\n");
+        expect(streamResult.done).toBe(false);
+      }
+
+      // 4. Command fails
+      await t.mutation(api.commands.complete, {
+        id: commandId,
+        success: false,
+        output: "Starting...\n",
+        stderr: "Error: something went wrong\n",
+        exitCode: 1,
+        error: "Command failed with exit code 1",
+        durationMs: 500,
+      });
+
+      // 5. Verify final failed state
+      streamResult = await t.query(api.rpc.getCommandStream, { commandId });
+      if (streamResult.found) {
+        expect(streamResult.status).toBe("failed");
+        expect(streamResult.done).toBe(true);
+        expect(streamResult.stderr).toBe("Error: something went wrong\n");
+        expect(streamResult.exitCode).toBe(1);
+      }
+    });
+  });
+
   describe("RPC workflow integration", () => {
     it("complete RPC flow: queue -> claim -> execute -> complete -> get result", async () => {
       // 1. Queue command via RPC

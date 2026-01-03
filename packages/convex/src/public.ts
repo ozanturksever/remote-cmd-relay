@@ -151,6 +151,46 @@ export const claimCommand = mutation({
 });
 
 /**
+ * Update partial output during command execution (for streaming)
+ */
+export const updatePartialOutput = mutation({
+  args: {
+    commandId: v.id("commandQueue"),
+    partialOutput: v.optional(v.string()),
+    partialStderr: v.optional(v.string()),
+  },
+  returns: v.object({
+    success: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const cmd = await ctx.db.get(args.commandId);
+    if (!cmd) {
+      return { success: false };
+    }
+
+    // Only update if command is still executing
+    if (cmd.status !== "claimed" && cmd.status !== "executing") {
+      return { success: false };
+    }
+
+    const updates: Record<string, unknown> = {
+      status: "executing",
+      updatedAt: Date.now(),
+    };
+
+    if (args.partialOutput !== undefined) {
+      updates.partialOutput = args.partialOutput;
+    }
+    if (args.partialStderr !== undefined) {
+      updates.partialStderr = args.partialStderr;
+    }
+
+    await ctx.db.patch(args.commandId, updates);
+    return { success: true };
+  },
+});
+
+/**
  * Submit command execution results
  */
 export const submitResult = mutation({

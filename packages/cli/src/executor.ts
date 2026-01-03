@@ -14,6 +14,8 @@ export interface ExecutionResult {
 export interface LocalExecuteOptions {
   command: string;
   timeoutMs: number;
+  onOutput?: (data: string) => void; // Callback for streaming stdout
+  onStderr?: (data: string) => void; // Callback for streaming stderr
 }
 
 export interface SSHExecuteOptions {
@@ -23,6 +25,8 @@ export interface SSHExecuteOptions {
   username: string;
   privateKey: string;
   timeoutMs: number;
+  onOutput?: (data: string) => void; // Callback for streaming stdout
+  onStderr?: (data: string) => void; // Callback for streaming stderr
 }
 
 /**
@@ -58,11 +62,19 @@ export async function executeLocal(options: LocalExecuteOptions): Promise<Execut
     }, options.timeoutMs);
 
     proc.stdout.on("data", (data: Buffer) => {
-      stdout += data.toString();
+      const chunk = data.toString();
+      stdout += chunk;
+      if (options.onOutput) {
+        options.onOutput(chunk);
+      }
     });
 
     proc.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      stderr += chunk;
+      if (options.onStderr) {
+        options.onStderr(chunk);
+      }
     });
 
     proc.on("close", (code) => {
@@ -166,10 +178,18 @@ export async function executeSSH(options: SSHExecuteOptions): Promise<ExecutionR
               }
             })
             .on("data", (data: Buffer) => {
-              stdout += data.toString();
+              const chunk = data.toString();
+              stdout += chunk;
+              if (options.onOutput) {
+                options.onOutput(chunk);
+              }
             })
             .stderr.on("data", (data: Buffer) => {
-              stderr += data.toString();
+              const chunk = data.toString();
+              stderr += chunk;
+              if (options.onStderr) {
+                options.onStderr(chunk);
+              }
             });
         });
       })

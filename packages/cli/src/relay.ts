@@ -219,13 +219,56 @@ export class Relay {
       return;
     }
 
-    // Execute the command
+    // Execute the command with streaming output
     let result: ExecutionResult;
+    let accumulatedOutput = "";
+    let accumulatedStderr = "";
+    let lastUpdateTime = 0;
+    const updateIntervalMs = 500; // Send updates every 500ms
+
+    // Helper to send partial output updates
+    const sendPartialUpdate = async () => {
+      if (!this.convexClient) return;
+      const publicModule = this.config.publicApiModule!;
+      const updatePartialOutputRef = anyApi[publicModule].updatePartialOutput;
+      
+      try {
+        await this.convexClient.mutation(updatePartialOutputRef, {
+          commandId: cmd._id,
+          partialOutput: accumulatedOutput,
+          partialStderr: accumulatedStderr,
+        });
+      } catch (err) {
+        // Ignore update errors - non-critical
+        logger.debug("Failed to send partial output update", { error: err });
+      }
+    };
+
+    // Debounced output handler
+    const handleOutput = (chunk: string) => {
+      accumulatedOutput += chunk;
+      const now = Date.now();
+      if (now - lastUpdateTime >= updateIntervalMs) {
+        lastUpdateTime = now;
+        sendPartialUpdate();
+      }
+    };
+
+    const handleStderr = (chunk: string) => {
+      accumulatedStderr += chunk;
+      const now = Date.now();
+      if (now - lastUpdateTime >= updateIntervalMs) {
+        lastUpdateTime = now;
+        sendPartialUpdate();
+      }
+    };
 
     if (cmd.targetType === "local") {
       result = await executeLocal({
         command: cmd.command,
         timeoutMs: cmd.timeoutMs,
+        onOutput: handleOutput,
+        onStderr: handleStderr,
       });
     } else if (cmd.targetType === "ssh") {
       if (!cmd.targetHost) {
@@ -274,6 +317,8 @@ export class Relay {
           username,
           privateKey,
           timeoutMs: cmd.timeoutMs,
+          onOutput: handleOutput,
+          onStderr: handleStderr,
         });
       }
     } else {

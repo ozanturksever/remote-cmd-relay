@@ -95,3 +95,73 @@ export const getCommandResult = query({
     };
   },
 });
+
+/**
+ * Get streaming output for a command (includes partial output during execution).
+ * Use this for real-time output streaming.
+ */
+export const getCommandStream = query({
+  args: {
+    commandId: v.id("commandQueue"),
+    outputOffset: v.optional(v.number()), // Only return output after this offset
+  },
+  returns: v.union(
+    v.object({
+      found: v.literal(true),
+      status: commandStatusValidator,
+      partialOutput: v.optional(v.string()),
+      partialStderr: v.optional(v.string()),
+      output: v.optional(v.string()),
+      stderr: v.optional(v.string()),
+      exitCode: v.optional(v.number()),
+      error: v.optional(v.string()),
+      done: v.boolean(),
+    }),
+    v.object({
+      found: v.literal(false),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const cmd = await ctx.db.get(args.commandId);
+    if (!cmd) {
+      return { found: false as const };
+    }
+
+    const isDone = cmd.status === "completed" || cmd.status === "failed" || cmd.status === "timeout";
+
+    // If command is done, return final output
+    if (isDone) {
+      return {
+        found: true as const,
+        status: cmd.status,
+        partialOutput: undefined,
+        partialStderr: undefined,
+        output: cmd.output,
+        stderr: cmd.stderr,
+        exitCode: cmd.exitCode,
+        error: cmd.error,
+        done: true,
+      };
+    }
+
+    // Return partial output, optionally sliced from offset
+    let partialOutput = cmd.partialOutput;
+    let partialStderr = cmd.partialStderr;
+
+    if (args.outputOffset !== undefined && partialOutput) {
+      partialOutput = partialOutput.slice(args.outputOffset);
+    }
+
+    return {
+      found: true as const,
+      status: cmd.status,
+      partialOutput,
+      partialStderr,
+      output: undefined,
+      stderr: undefined,
+      exitCode: undefined,
+      error: undefined,
+      done: false,
+    };
+  },
+});

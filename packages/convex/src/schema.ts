@@ -157,6 +157,10 @@ export const tables = {
     status: commandStatusValidator,
     claimedBy: v.optional(v.string()), // Relay assignment ID that claimed
     claimedAt: v.optional(v.number()),
+    // Streaming output support
+    partialOutput: v.optional(v.string()), // Incremental stdout during execution
+    partialStderr: v.optional(v.string()), // Incremental stderr during execution
+    outputOffset: v.optional(v.number()), // Last sent output offset for streaming
     // Results
     output: v.optional(v.string()),
     stderr: v.optional(v.string()),

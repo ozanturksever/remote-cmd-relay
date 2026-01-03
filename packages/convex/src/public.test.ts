@@ -185,6 +185,130 @@ describe("public", () => {
     });
   });
 
+  describe("updatePartialOutput", () => {
+    it("updates partial output for claimed command", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "claimed",
+        claimedBy: "relay-1",
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "Processing...\n",
+        partialStderr: "",
+      });
+
+      expect(result.success).toBe(true);
+
+      // Verify command was updated
+      const updated = await t.run(async (ctx) => {
+        return await ctx.db.get(cmd._id);
+      });
+
+      expect(updated?.status).toBe("executing");
+      expect(updated?.partialOutput).toBe("Processing...\n");
+    });
+
+    it("updates partial output for executing command", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "executing",
+      });
+
+      await t.run(async (ctx) => {
+        await ctx.db.patch(cmd._id, {
+          partialOutput: "Line 1\n",
+        });
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "Line 1\nLine 2\n",
+      });
+
+      expect(result.success).toBe(true);
+
+      const updated = await t.run(async (ctx) => {
+        return await ctx.db.get(cmd._id);
+      });
+
+      expect(updated?.partialOutput).toBe("Line 1\nLine 2\n");
+    });
+
+    it("updates both stdout and stderr", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "claimed",
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "stdout content",
+        partialStderr: "stderr content",
+      });
+
+      expect(result.success).toBe(true);
+
+      const updated = await t.run(async (ctx) => {
+        return await ctx.db.get(cmd._id);
+      });
+
+      expect(updated?.partialOutput).toBe("stdout content");
+      expect(updated?.partialStderr).toBe("stderr content");
+    });
+
+    it("fails for non-existent command", async () => {
+      const cmd = await createMockCommand(t, { status: "pending" });
+      await t.run(async (ctx) => {
+        await ctx.db.delete(cmd._id);
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "test",
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("fails for completed command", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "completed",
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "test",
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("fails for failed command", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "failed",
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "test",
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("fails for pending command (not yet claimed)", async () => {
+      const cmd = await createMockCommand(t, {
+        status: "pending",
+      });
+
+      const result = await t.mutation(api.public.updatePartialOutput, {
+        commandId: cmd._id,
+        partialOutput: "test",
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe("submitResult", () => {
     it("submits successful command result", async () => {
       const cmd = await createMockCommand(t, {
