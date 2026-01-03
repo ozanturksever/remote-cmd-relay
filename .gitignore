@@ -25,3 +25,6 @@ packages/convex/_generated/
 bun.lockb
 yarn.lock
 pnpm-lock.yaml
+
+# E2E test artifacts
+test-project/.convex-e2e-test/

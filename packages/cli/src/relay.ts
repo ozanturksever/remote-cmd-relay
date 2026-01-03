@@ -18,6 +18,7 @@ export interface RelayConfig {
   storeDir?: string; // Custom directory for credential store
   convexDeploymentUrl?: string; // Convex deployment URL for subscription mode (e.g., https://your-app.convex.cloud)
   componentName?: string; // Convex component name (default: "remoteCmdRelay")
+  publicApiModule?: string; // App-level module exposing component functions (default: "relayPublic")
 }
 
 export interface RelayAssignment {
@@ -57,6 +58,7 @@ export class Relay {
       ...config,
       statusReportIntervalMs: config.statusReportIntervalMs || 30000, // Default 30s
       componentName: config.componentName || "remoteCmdRelay",
+      publicApiModule: config.publicApiModule || "relayPublic",
     };
     this.credentialManager = new CredentialManager(config.storeDir);
   }
@@ -152,9 +154,10 @@ export class Relay {
     // Create Convex client
     this.convexClient = new ConvexClient(this.config.convexDeploymentUrl);
 
-    // Build the API reference for the component's getPendingCommands query
-    const componentName = this.config.componentName!;
-    const getPendingCommandsRef = anyApi.components[componentName].public.getPendingCommands;
+    // Build the API reference for the app-level wrapper functions
+    // Convex components are internal-only, so we use app-level wrappers
+    const publicModule = this.config.publicApiModule!;
+    const getPendingCommandsRef = anyApi[publicModule].getPendingCommands;
 
     // Subscribe to pending commands
     const machineId = this.assignment.machineId;
@@ -195,10 +198,10 @@ export class Relay {
       targetType: cmd.targetType,
     });
 
-    const componentName = this.config.componentName!;
+    const publicModule = this.config.publicApiModule!;
 
     // Claim the command via Convex mutation
-    const claimCommandRef = anyApi.components[componentName].public.claimCommand;
+    const claimCommandRef = anyApi[publicModule].claimCommand;
 
     try {
       const claimResult = await this.convexClient.mutation(claimCommandRef, {
@@ -300,8 +303,8 @@ export class Relay {
   private async submitResultViaConvex(commandId: string, result: ExecutionResult): Promise<void> {
     if (!this.convexClient) return;
 
-    const componentName = this.config.componentName!;
-    const submitResultRef = anyApi.components[componentName].public.submitResult;
+    const publicModule = this.config.publicApiModule!;
+    const submitResultRef = anyApi[publicModule].submitResult;
 
     try {
       await this.convexClient.mutation(submitResultRef, {

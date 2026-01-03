@@ -459,6 +459,44 @@ export declare const components: {
         | { error: string; valid: false }
       >;
     };
+    rpc: {
+      getCommandResult: FunctionReference<
+        "query",
+        "internal",
+        { commandId: string },
+        | {
+            durationMs?: number;
+            error?: string;
+            exitCode?: number;
+            found: true;
+            output?: string;
+            status:
+              | "pending"
+              | "claimed"
+              | "executing"
+              | "completed"
+              | "failed"
+              | "timeout";
+            stderr?: string;
+          }
+        | { found: false }
+      >;
+      queueRpcCommand: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          command: string;
+          createdBy: string;
+          machineId: string;
+          targetHost?: string;
+          targetPort?: number;
+          targetType: "local" | "ssh";
+          targetUsername?: string;
+          timeoutMs?: number;
+        },
+        { commandId?: string; error?: string; success: boolean }
+      >;
+    };
     status: {
       findByCapability: FunctionReference<
         "query",

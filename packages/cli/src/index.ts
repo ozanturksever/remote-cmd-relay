@@ -22,6 +22,7 @@ Options:
   --store-dir <path>        Custom directory for credential store (default: ~/.remote-cmd-relay)
   --deployment-url <url>    Convex deployment URL for subscription mode (enables real-time command pickup)
   --component-name <name>   Convex component name (default: remoteCmdRelay)
+  --public-api-module <name> App-level module exposing component functions (default: relayPublic)
   --help, -h                Show this help message
   --version, -v             Show version
 
@@ -50,6 +51,7 @@ function parseArgs(args: string[]): {
   storeDir?: string;
   convexDeploymentUrl?: string;
   componentName?: string;
+  publicApiModule?: string;
 } | null {
   const result = {
     apiKey: "",
@@ -60,6 +62,7 @@ function parseArgs(args: string[]): {
     storeDir: undefined as string | undefined,
     convexDeploymentUrl: undefined as string | undefined,
     componentName: undefined as string | undefined,
+    publicApiModule: undefined as string | undefined,
   };
 
   let i = 0;
@@ -124,6 +127,14 @@ function parseArgs(args: string[]): {
         return null;
       }
       result.componentName = val;
+    } else if (arg === "--public-api-module") {
+      i++;
+      const val = args[i];
+      if (!val || val.startsWith("--")) {
+        console.error("Error: --public-api-module requires a module name argument");
+        return null;
+      }
+      result.publicApiModule = val;
     } else if (!arg.startsWith("--")) {
       // Positional arguments
       if (!result.apiKey) {
@@ -191,6 +202,7 @@ async function main(): Promise<void> {
     storeDir: config.storeDir,
     convexDeploymentUrl: config.convexDeploymentUrl,
     componentName: config.componentName,
+    publicApiModule: config.publicApiModule,
   });
 
   // Handle graceful shutdown
