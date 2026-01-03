@@ -3,7 +3,7 @@
 import { Relay } from "./relay.js";
 import { logger, setLogLevel } from "./logger.js";
 
-const VERSION = "2.0.0";
+const VERSION = "2.0.1";
 
 function printUsage(): void {
   console.log(`
